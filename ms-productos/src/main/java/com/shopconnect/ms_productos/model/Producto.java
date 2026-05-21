@@ -23,13 +23,17 @@ public class Producto {
     private Long id;
 
     @NotBlank(message= "El nombre del producto es obligatorio")
-    @Column(nullable=false, unique= true)
+    @Column(nullable=false)
     private String nombre;
 
-    @NotNull
+    @NotNull(message = "El precio es obligatorio")
+    @Min(value = 0, message = "El precio no puede ser negativo")
+    @Column(nullable = false)
     private Double precio;
 
-    @Min(0)
+    @NotNull(message = "El stock es obligatorio")
+    @Min(value = 0, message = "El stock no puede ser negativo")
+    @Column(nullable = false)
     private Integer stock;
 
     @NotBlank(message= "El SKU es obligatorio")
@@ -39,11 +43,11 @@ public class Producto {
     // --- Relación con  --------------------------------
 
     @ManyToOne(optional= false)
-    @JoinColumn(name ="categoria_id")
+    @JoinColumn(name ="categoria_id", nullable=false)
     private Categoria categoria;
 
     @ManyToOne(optional = false)
-    @JoinColumn(name = "marca_id")
+    @JoinColumn(name = "marca_id", nullable=false)
     private Marca marca;
 
     // Constructor Vacio

@@ -12,7 +12,7 @@ import jakarta.validation.constraints.NotBlank;
 
 
 @Entity // Le indicamos a Hibernate que es una tabla
-@Table(name = "imagenProducto") // Le asignamos un nombre en la tabla
+@Table(name = "imagen_producto") // Le asignamos un nombre en la tabla
 public class ImagenProducto {
 
     // Atributos con anotaciones JPA
@@ -28,8 +28,10 @@ public class ImagenProducto {
     private Integer orden = 0;
     private Boolean principal = false;
 
+    // Relaciones 
+
     @ManyToOne(optional = false)
-    @JoinColumn(name = "producto_id")
+    @JoinColumn(name = "producto_id", nullable=false)
     private Producto producto;
 
 
