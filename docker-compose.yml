@@ -1,0 +1,114 @@
+services:
+  oracle-db:
+    image: gvenzl/oracle-xe:21-slim
+    container_name: oracle-db
+    ports:
+      - "1521:1521"
+    environment:
+      ORACLE_PASSWORD: Oracle123
+    networks:
+      - ecommerce-network
+    healthcheck:
+      test: ["CMD", "healthcheck.sh"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+
+  ms-productos:
+    build: ./ms-productos
+    container_name: ms-productos
+    ports:
+      - "8081:8080"
+    depends_on:
+      oracle-db:
+        condition: service_healthy
+    environment:
+      SERVER_PORT: 8080
+      SPRING_DATASOURCE_URL: jdbc:oracle:thin:@oracle-db:1521:XE
+      SPRING_DATASOURCE_USERNAME: system
+      SPRING_DATASOURCE_PASSWORD: Oracle123
+      SPRING_DATASOURCE_DRIVER_CLASS_NAME: oracle.jdbc.OracleDriver
+      SPRING_JPA_HIBERNATE_DDL_AUTO: update
+      SPRING_JPA_SHOW_SQL: "true"
+    networks:
+      - ecommerce-network
+
+  ms-usuarios:
+    build: ./ms-usuarios
+    container_name: ms-usuarios
+    ports:
+      - "8082:8080"
+    depends_on:
+      oracle-db:
+        condition: service_healthy
+    environment:
+      SERVER_PORT: 8080
+      SPRING_DATASOURCE_URL: jdbc:oracle:thin:@oracle-db:1521:XE
+      SPRING_DATASOURCE_USERNAME: system
+      SPRING_DATASOURCE_PASSWORD: Oracle123
+      SPRING_DATASOURCE_DRIVER_CLASS_NAME: oracle.jdbc.OracleDriver
+      SPRING_JPA_HIBERNATE_DDL_AUTO: update
+      SPRING_JPA_SHOW_SQL: "true"
+    networks:
+      - ecommerce-network
+
+  ms-pedidos:
+    build: ./ms-pedidos
+    container_name: ms-pedidos
+    ports:
+      - "8083:8080"
+    depends_on:
+      oracle-db:
+        condition: service_healthy
+    environment:
+      SERVER_PORT: 8080
+      SPRING_DATASOURCE_URL: jdbc:oracle:thin:@oracle-db:1521:XE
+      SPRING_DATASOURCE_USERNAME: system
+      SPRING_DATASOURCE_PASSWORD: Oracle123
+      SPRING_DATASOURCE_DRIVER_CLASS_NAME: oracle.jdbc.OracleDriver
+      SPRING_JPA_HIBERNATE_DDL_AUTO: update
+      SPRING_JPA_SHOW_SQL: "true"
+    networks:
+      - ecommerce-network
+
+  ms-inventario:
+    build: ./ms-inventario
+    container_name: ms-inventario
+    ports:
+      - "8084:8080"
+    depends_on:
+      oracle-db:
+        condition: service_healthy
+    environment:
+      SERVER_PORT: 8080
+      SPRING_DATASOURCE_URL: jdbc:oracle:thin:@oracle-db:1521:XE
+      SPRING_DATASOURCE_USERNAME: system
+      SPRING_DATASOURCE_PASSWORD: Oracle123
+      SPRING_DATASOURCE_DRIVER_CLASS_NAME: oracle.jdbc.OracleDriver
+      SPRING_JPA_HIBERNATE_DDL_AUTO: update
+      SPRING_JPA_SHOW_SQL: "true"
+    networks:
+      - ecommerce-network
+
+  ms-pagos:
+    build: ./ms-pagos
+    container_name: ms-pagos
+    ports:
+      - "8085:8080"
+    depends_on:
+      oracle-db:
+        condition: service_healthy
+    environment:
+      SERVER_PORT: 8080
+      SPRING_DATASOURCE_URL: jdbc:oracle:thin:@oracle-db:1521:XE
+      SPRING_DATASOURCE_USERNAME: system
+      SPRING_DATASOURCE_PASSWORD: Oracle123
+      SPRING_DATASOURCE_DRIVER_CLASS_NAME: oracle.jdbc.OracleDriver
+      SPRING_JPA_HIBERNATE_DDL_AUTO: update
+      SPRING_JPA_SHOW_SQL: "true"
+    networks:
+      - ecommerce-network
+
+networks:
+  ecommerce-network:
+    driver: bridge
