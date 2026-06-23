@@ -12,6 +12,10 @@ import com.shopconnect.ms_inventario.model.Inventario;
 import com.shopconnect.ms_inventario.model.MovimientoInventario;
 import com.shopconnect.ms_inventario.repository.InventarioRepository;
 import com.shopconnect.ms_inventario.repository.MovimientoInventarioRepository;
+import com.shopconnect.ms_inventario.dto.request.InventarioRequestDTO;
+import com.shopconnect.ms_inventario.dto.response.InventarioResponseDTO;
+import com.shopconnect.ms_inventario.dto.request.MovimientoInventarioRequestDTO;
+import com.shopconnect.ms_inventario.dto.response.MovimientoInventarioResponseDTO;
 
 /**
  * SERVICIO: InventarioService
@@ -44,47 +48,81 @@ public class InventarioService {
     }
 
     @Transactional
-    public Inventario crear(Inventario inventario) {
+    public InventarioResponseDTO crear(InventarioRequestDTO dto) { // Recibes el request DTO
 
-        if (inventarioRepository.existsByProductoId(inventario.getProductoId())) {
-            throw new IllegalArgumentException("Ya existe inventario para el productoId: " + inventario.getProductoId());
+        if (inventarioRepository.existsByProductoId(dto.getProductoId())) { // Validar duplicado
+            throw new IllegalArgumentException("Ya existe inventario para el productoId: " + dto.getProductoId());
         }
 
-        if (inventario.getStockActual() == null) {
+        Inventario inventario = new Inventario(); // Crear objeto si no esta duplicado
+
+        // Revisar stock actual y si es null es igual a 0. De lo contrario lo que recibe del DTO
+        if (dto.getStockActual() == null) {
             inventario.setStockActual(0);
+        } else {
+            inventario.setStockActual(dto.getStockActual());
         }
 
-        if (inventario.getStockMinimo() == null) {
+        // Revisar stock minimo y si es diferente a null es igual a 0. De lo contrario lo que decibe del DTO
+        if (dto.getStockMinimo() == null) {
             inventario.setStockMinimo(0);
+        } else {
+            inventario.setStockMinimo(dto.getStockMinimo());
         }
 
-        return inventarioRepository.save(inventario);
+        // Guardar 
+        Inventario guardado = inventarioRepository.save(inventario);
+
+        // Response DTO
+        InventarioResponseDTO response = new InventarioResponseDTO();
+        response.setId(guardado.getId());
+        response.setProductoId(guardado.getProductoId());
+        response.setStockActual(guardado.getStockActual());
+        response.setStockMinimo(guardado.getStockMinimo());
+
+        return response;
     }
 
     @Transactional
-    public Inventario actualizar(Long id, Inventario datos) {
+    public InventarioResponseDTO actualizar(Long id, InventarioRequestDTO dto) {
 
-        Inventario inventario = inventarioRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Inventario no encontrado: " + id));
+        // buscar por ID en la BD
+        Inventario inventario = inventarioRepository.findById(id) 
+                .orElseThrow(() -> new RuntimeException("Inventario no encontrado: " + id)); 
 
-        if (datos.getProductoId() != null) {
-            if (!datos.getProductoId().equals(inventario.getProductoId())
-                    && inventarioRepository.existsByProductoId(datos.getProductoId())) {
-                throw new IllegalArgumentException("Ya existe inventario para el productoId: " + datos.getProductoId());
+        // Si productoId viene informado, validamos que no esté asignado a otro inventario
+        if (dto.getProductoId() != null) {
+            if (!dto.getProductoId().equals(inventario.getProductoId())
+                    && inventarioRepository.existsByProductoId(dto.getProductoId())) {
+                throw new IllegalArgumentException(
+                    "Ya existe inventario para el productoId: " + dto.getProductoId());
             }
 
-            inventario.setProductoId(datos.getProductoId());
+            // Si existe lo actualizamos
+            inventario.setProductoId(dto.getProductoId());
         }
 
-        if (datos.getStockActual() != null) {
-            inventario.setStockActual(datos.getStockActual());
+        // Si no es nulo actualizamos con el nuevo stock
+        if (dto.getStockActual() != null) {
+            inventario.setStockActual(dto.getStockActual());
         }
 
-        if (datos.getStockMinimo() != null) {
-            inventario.setStockMinimo(datos.getStockMinimo());
+        // Si no es nulo actualizamos con el nuevo stock
+        if (dto.getStockMinimo() != null) {
+            inventario.setStockMinimo(dto.getStockMinimo());
         }
 
-        return inventarioRepository.save(inventario);
+        // Creamos el objeto actualizado y le asignamos el metodo de JPA para guardar  
+        Inventario actualizado = inventarioRepository.save(inventario);
+
+        // Creamos la respuesta, instanciando response y preparandolo para recibir los setters
+        InventarioResponseDTO response = new InventarioResponseDTO();
+        response.setId(actualizado.getId());
+        response.setProductoId(actualizado.getProductoId());
+        response.setStockActual(actualizado.getStockActual());
+        response.setStockMinimo(actualizado.getStockMinimo());
+
+        return response; // devolvemos el objeto 
     }
 
     @Transactional
