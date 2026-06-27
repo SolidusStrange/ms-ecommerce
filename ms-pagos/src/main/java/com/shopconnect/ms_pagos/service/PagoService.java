@@ -4,10 +4,18 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
-import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.client.RestTemplate;
 
+import com.shopconnect.ms_pagos.dto.request.MetodoPagoRequestDTO;
+import com.shopconnect.ms_pagos.dto.request.PagoRequestDTO;
+import com.shopconnect.ms_pagos.dto.request.TransaccionPagoRequestDTO;
+import com.shopconnect.ms_pagos.dto.response.MetodoPagoResponseDTO;
+import com.shopconnect.ms_pagos.dto.response.PagoResponseDTO;
+import com.shopconnect.ms_pagos.dto.response.TransaccionPagoResponseDTO;
 import com.shopconnect.ms_pagos.model.MetodoPago;
 import com.shopconnect.ms_pagos.model.Pago;
 import com.shopconnect.ms_pagos.model.TransaccionPago;
@@ -15,222 +23,129 @@ import com.shopconnect.ms_pagos.repository.MetodoPagoRepository;
 import com.shopconnect.ms_pagos.repository.PagoRepository;
 import com.shopconnect.ms_pagos.repository.TransaccionPagoRepository;
 
-/**
- * SERVICIO: PagoService
- *
- * RESPONSABILIDAD: Lógica de negocio.
- * El Service llama a los métodos del Repository.
- * El Service NO escribe SQL ni usa EntityManager directamente.
- */
 @Service
 public class PagoService {
 
-    @Autowired
-    private PagoRepository pagoRepository;
+    private final PagoRepository pagoRepository;
+    private final MetodoPagoRepository metodoPagoRepository;
+    private final TransaccionPagoRepository transaccionPagoRepository;
+    private final RestTemplate restTemplate;
 
-    @Autowired
-    private MetodoPagoRepository metodoPagoRepository;
+    @Value("${app.ms-pedidos.url}")
+    private String pedidosBaseUrl;
 
-    @Autowired
-    private TransaccionPagoRepository transaccionPagoRepository;
+    public PagoService(PagoRepository pagoRepository,
+                       MetodoPagoRepository metodoPagoRepository,
+                       TransaccionPagoRepository transaccionPagoRepository,
+                       RestTemplate restTemplate) {
+        this.pagoRepository = pagoRepository;
+        this.metodoPagoRepository = metodoPagoRepository;
+        this.transaccionPagoRepository = transaccionPagoRepository;
+        this.restTemplate = restTemplate;
+    }
 
     // ═══ PAGOS ════════════════════════════════════════════════════
 
-    public List<Pago> listarTodos() {
-        return pagoRepository.findAll();
+    public List<PagoResponseDTO> listarTodos() {
+        return pagoRepository.findAll()
+                .stream()
+                .map(this::convertirAPagoDTO)
+                .toList();
     }
 
-    public Optional<Pago> buscarPorId(Long id) {
-        return pagoRepository.findById(id);
+    public Optional<PagoResponseDTO> buscarPorId(Long id) {
+        return pagoRepository.findById(id)
+                .map(this::convertirAPagoDTO);
     }
 
-    public List<Pago> listarPorPedido(Long pedidoId) {
-        return pagoRepository.findByPedidoId(pedidoId);
+    public List<PagoResponseDTO> listarPorPedido(Long pedidoId) {
+        return pagoRepository.findByPedidoId(pedidoId)
+                .stream()
+                .map(this::convertirAPagoDTO)
+                .toList();
     }
 
-    public List<Pago> listarPorEstado(String estado) {
-        return pagoRepository.findByEstado(estado.toUpperCase());
+    public List<PagoResponseDTO> listarPorEstado(String estado) {
+        return pagoRepository.findByEstado(estado.toUpperCase())
+                .stream()
+                .map(this::convertirAPagoDTO)
+                .toList();
     }
 
     @Transactional
-    public Pago procesar(Pago pago, Long metodoId) {
+    public PagoResponseDTO procesar(PagoRequestDTO dto) {
+        validarPedidoExiste(dto.getPedidoId());
 
-        // Cargar método de pago
-        MetodoPago metodoPago = metodoPagoRepository.findById(metodoId)
-                .orElseThrow(() -> new RuntimeException("Método de pago no encontrado: " + metodoId));
+        MetodoPago metodoPago = metodoPagoRepository.findById(dto.getMetodoPagoId())
+                .orElseThrow(() -> new RuntimeException("Método de pago no encontrado: " + dto.getMetodoPagoId()));
 
-        // Validar que el método esté activo
         if (metodoPago.getActivo() != null && !metodoPago.getActivo()) {
             throw new IllegalStateException("El método de pago no está activo");
         }
 
-        // Asignar método de pago
+        Pago pago = new Pago();
+        pago.setMonto(dto.getMonto());
+        pago.setPedidoId(dto.getPedidoId());
+        pago.setEstado(dto.getEstado() == null || dto.getEstado().isBlank()
+                ? "PENDIENTE"
+                : dto.getEstado().toUpperCase());
+        pago.setFechaPago(LocalDateTime.now());
         pago.setMetodoPago(metodoPago);
 
-        // Estado inicial del pago
-        if (pago.getEstado() == null || pago.getEstado().isBlank()) {
-            pago.setEstado("PENDIENTE");
-        } else {
-            pago.setEstado(pago.getEstado().toUpperCase());
-        }
-
-        // Fecha del pago
-        if (pago.getFechaPago() == null) {
-            pago.setFechaPago(LocalDateTime.now());
-        }
-
-        // Guardar pago primero para obtener ID
         Pago pagoGuardado = pagoRepository.save(pago);
 
-        // Crear transacción inicial
         TransaccionPago transaccion = new TransaccionPago();
         transaccion.setPago(pagoGuardado);
         transaccion.setEstado("PENDIENTE");
         transaccion.setFechaTransaccion(LocalDateTime.now());
         transaccion.setCodigoTransaccion("TX-" + pagoGuardado.getId() + "-" + System.currentTimeMillis());
-
         transaccionPagoRepository.save(transaccion);
 
-        return pagoGuardado;
+        return convertirAPagoDTO(pagoGuardado);
     }
 
     @Transactional
-    public Pago actualizar(Long id, Pago datos) {
-
+    public PagoResponseDTO actualizar(Long id, PagoRequestDTO dto) {
         Pago pago = pagoRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Pago no encontrado: " + id));
 
-        if (datos.getMonto() != null) {
-            pago.setMonto(datos.getMonto());
+        if (dto.getMonto() != null) {
+            pago.setMonto(dto.getMonto());
         }
 
-        if (datos.getPedidoId() != null) {
-            pago.setPedidoId(datos.getPedidoId());
+        if (dto.getPedidoId() != null) {
+            validarPedidoExiste(dto.getPedidoId());
+            pago.setPedidoId(dto.getPedidoId());
         }
 
-        if (datos.getFechaPago() != null) {
-            pago.setFechaPago(datos.getFechaPago());
+        if (dto.getEstado() != null && !dto.getEstado().isBlank()) {
+            pago.setEstado(dto.getEstado().toUpperCase());
         }
 
-        if (datos.getEstado() != null) {
-            pago.setEstado(datos.getEstado().toUpperCase());
+        if (dto.getMetodoPagoId() != null) {
+            MetodoPago metodoPago = metodoPagoRepository.findById(dto.getMetodoPagoId())
+                    .orElseThrow(() -> new RuntimeException("Método de pago no encontrado: " + dto.getMetodoPagoId()));
+
+            if (metodoPago.getActivo() != null && !metodoPago.getActivo()) {
+                throw new IllegalStateException("El método de pago no está activo");
+            }
+
+            pago.setMetodoPago(metodoPago);
         }
 
-        return pagoRepository.save(pago);
+        return convertirAPagoDTO(pagoRepository.save(pago));
     }
 
     @Transactional
     public void eliminar(Long id) {
-
         if (!pagoRepository.existsById(id)) {
             throw new RuntimeException("Pago no encontrado: " + id);
         }
-
         pagoRepository.deleteById(id);
     }
 
-    // ═══ MÉTODOS DE PAGO ═════════════════════════════════════════════
-
-    public List<MetodoPago> listarMetodos() {
-        return metodoPagoRepository.findAll();
-    }
-
-    public List<MetodoPago> listarMetodosActivos() {
-        return metodoPagoRepository.findByActivo(true);
-    }
-
-    public Optional<MetodoPago> buscarMetodoPorId(Long id) {
-        return metodoPagoRepository.findById(id);
-    }
-
     @Transactional
-    public MetodoPago crearMetodo(MetodoPago metodoPago) {
-
-        if (metodoPagoRepository.existsByNombre(metodoPago.getNombre())) {
-            throw new IllegalArgumentException("Nombre de método de pago duplicado: " + metodoPago.getNombre());
-        }
-
-        if (metodoPago.getActivo() == null) {
-            metodoPago.setActivo(true);
-        }
-
-        return metodoPagoRepository.save(metodoPago);
-    }
-
-    @Transactional
-    public MetodoPago actualizarMetodo(Long id, MetodoPago datos) {
-
-        MetodoPago metodoPago = metodoPagoRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Método de pago no encontrado: " + id));
-
-        if (datos.getNombre() != null) {
-            if (!datos.getNombre().equals(metodoPago.getNombre())
-                    && metodoPagoRepository.existsByNombre(datos.getNombre())) {
-                throw new IllegalArgumentException("Nombre de método de pago duplicado: " + datos.getNombre());
-            }
-
-            metodoPago.setNombre(datos.getNombre());
-        }
-
-        if (datos.getActivo() != null) {
-            metodoPago.setActivo(datos.getActivo());
-        }
-
-        return metodoPagoRepository.save(metodoPago);
-    }
-
-    @Transactional
-    public void eliminarMetodo(Long id) {
-
-        if (!metodoPagoRepository.existsById(id)) {
-            throw new RuntimeException("Método de pago no encontrado: " + id);
-        }
-
-        metodoPagoRepository.deleteById(id);
-    }
-
-    // ═══ TRANSACCIONES DE PAGO ═══════════════════════════════════════
-
-    public List<TransaccionPago> listarTransaccionesPorPago(Long pagoId) {
-        return transaccionPagoRepository.findByPagoId(pagoId);
-    }
-
-    @Transactional
-    public TransaccionPago agregarTransaccion(Long pagoId, TransaccionPago transaccion) {
-
-        Pago pago = pagoRepository.findById(pagoId)
-                .orElseThrow(() -> new RuntimeException("Pago no encontrado: " + pagoId));
-
-        transaccion.setPago(pago);
-
-        if (transaccion.getEstado() == null || transaccion.getEstado().isBlank()) {
-            transaccion.setEstado("PENDIENTE");
-        } else {
-            transaccion.setEstado(transaccion.getEstado().toUpperCase());
-        }
-
-        if (transaccion.getFechaTransaccion() == null) {
-            transaccion.setFechaTransaccion(LocalDateTime.now());
-        }
-
-        return transaccionPagoRepository.save(transaccion);
-    }
-
-    @Transactional
-    public void eliminarTransaccion(Long id) {
-
-        if (!transaccionPagoRepository.existsById(id)) {
-            throw new RuntimeException("Transacción no encontrada: " + id);
-        }
-
-        transaccionPagoRepository.deleteById(id);
-    }
-
-    // ═══ OPERACIONES ESPECÍFICAS ═══════════════════════════════════════
-
-    @Transactional
-    public Pago actualizarEstado(Long pagoId, String estado) {
-
+    public PagoResponseDTO actualizarEstado(Long pagoId, String estado) {
         Pago pago = pagoRepository.findById(pagoId)
                 .orElseThrow(() -> new RuntimeException("Pago no encontrado: " + pagoId));
 
@@ -239,7 +154,149 @@ public class PagoService {
         }
 
         pago.setEstado(estado.toUpperCase());
+        return convertirAPagoDTO(pagoRepository.save(pago));
+    }
 
-        return pagoRepository.save(pago);
+    // ═══ MÉTODOS DE PAGO ═════════════════════════════════════════════
+
+    public List<MetodoPagoResponseDTO> listarMetodos() {
+        return metodoPagoRepository.findAll()
+                .stream()
+                .map(this::convertirAMetodoDTO)
+                .toList();
+    }
+
+    public List<MetodoPagoResponseDTO> listarMetodosActivos() {
+        return metodoPagoRepository.findByActivo(true)
+                .stream()
+                .map(this::convertirAMetodoDTO)
+                .toList();
+    }
+
+    public Optional<MetodoPagoResponseDTO> buscarMetodoPorId(Long id) {
+        return metodoPagoRepository.findById(id)
+                .map(this::convertirAMetodoDTO);
+    }
+
+    @Transactional
+    public MetodoPagoResponseDTO crearMetodo(MetodoPagoRequestDTO dto) {
+        if (metodoPagoRepository.existsByNombre(dto.getNombre())) {
+            throw new IllegalArgumentException("Nombre de método de pago duplicado: " + dto.getNombre());
+        }
+
+        MetodoPago metodoPago = new MetodoPago();
+        metodoPago.setNombre(dto.getNombre());
+        metodoPago.setActivo(dto.getActivo() == null ? true : dto.getActivo());
+
+        return convertirAMetodoDTO(metodoPagoRepository.save(metodoPago));
+    }
+
+    @Transactional
+    public MetodoPagoResponseDTO actualizarMetodo(Long id, MetodoPagoRequestDTO dto) {
+        MetodoPago metodoPago = metodoPagoRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Método de pago no encontrado: " + id));
+
+        if (dto.getNombre() != null) {
+            if (!dto.getNombre().equals(metodoPago.getNombre())
+                    && metodoPagoRepository.existsByNombre(dto.getNombre())) {
+                throw new IllegalArgumentException("Nombre de método de pago duplicado: " + dto.getNombre());
+            }
+            metodoPago.setNombre(dto.getNombre());
+        }
+
+        if (dto.getActivo() != null) {
+            metodoPago.setActivo(dto.getActivo());
+        }
+
+        return convertirAMetodoDTO(metodoPagoRepository.save(metodoPago));
+    }
+
+    @Transactional
+    public void eliminarMetodo(Long id) {
+        if (!metodoPagoRepository.existsById(id)) {
+            throw new RuntimeException("Método de pago no encontrado: " + id);
+        }
+        metodoPagoRepository.deleteById(id);
+    }
+
+    // ═══ TRANSACCIONES DE PAGO ═══════════════════════════════════════
+
+    public List<TransaccionPagoResponseDTO> listarTransaccionesPorPago(Long pagoId) {
+        return transaccionPagoRepository.findByPagoId(pagoId)
+                .stream()
+                .map(this::convertirATransaccionDTO)
+                .toList();
+    }
+
+    @Transactional
+    public TransaccionPagoResponseDTO agregarTransaccion(Long pagoId, TransaccionPagoRequestDTO dto) {
+        Pago pago = pagoRepository.findById(pagoId)
+                .orElseThrow(() -> new RuntimeException("Pago no encontrado: " + pagoId));
+
+        TransaccionPago transaccion = new TransaccionPago();
+        transaccion.setPago(pago);
+        transaccion.setCodigoTransaccion(dto.getCodigoTransaccion());
+        transaccion.setEstado(dto.getEstado() == null || dto.getEstado().isBlank()
+                ? "PENDIENTE"
+                : dto.getEstado().toUpperCase());
+        transaccion.setFechaTransaccion(LocalDateTime.now());
+
+        return convertirATransaccionDTO(transaccionPagoRepository.save(transaccion));
+    }
+
+    @Transactional
+    public void eliminarTransaccion(Long id) {
+        if (!transaccionPagoRepository.existsById(id)) {
+            throw new RuntimeException("Transacción no encontrada: " + id);
+        }
+        transaccionPagoRepository.deleteById(id);
+    }
+
+    // ═══ VALIDACIÓN EXTERNA ═══════════════════════════════════════════
+
+    private void validarPedidoExiste(Long pedidoId) {
+        try {
+            ResponseEntity<Object> response = restTemplate.getForEntity(
+                    pedidosBaseUrl + "/" + pedidoId,
+                    Object.class
+            );
+
+            if (!response.getStatusCode().is2xxSuccessful()) {
+                throw new RuntimeException("Pedido no encontrado: " + pedidoId);
+            }
+        } catch (Exception e) {
+            throw new RuntimeException("Pedido no encontrado: " + pedidoId);
+        }
+    }
+
+    // ═══ CONVERSORES ══════════════════════════════════════════════════
+
+    private PagoResponseDTO convertirAPagoDTO(Pago pago) {
+        PagoResponseDTO dto = new PagoResponseDTO();
+        dto.setId(pago.getId());
+        dto.setMonto(pago.getMonto());
+        dto.setPedidoId(pago.getPedidoId());
+        dto.setEstado(pago.getEstado());
+        dto.setFechaPago(pago.getFechaPago());
+        dto.setMetodoPagoId(pago.getMetodoPago() != null ? pago.getMetodoPago().getId() : null);
+        return dto;
+    }
+
+    private MetodoPagoResponseDTO convertirAMetodoDTO(MetodoPago metodoPago) {
+        MetodoPagoResponseDTO dto = new MetodoPagoResponseDTO();
+        dto.setId(metodoPago.getId());
+        dto.setNombre(metodoPago.getNombre());
+        dto.setActivo(metodoPago.getActivo());
+        return dto;
+    }
+
+    private TransaccionPagoResponseDTO convertirATransaccionDTO(TransaccionPago transaccion) {
+        TransaccionPagoResponseDTO dto = new TransaccionPagoResponseDTO();
+        dto.setId(transaccion.getId());
+        dto.setCodigoTransaccion(transaccion.getCodigoTransaccion());
+        dto.setEstado(transaccion.getEstado());
+        dto.setFechaTransaccion(transaccion.getFechaTransaccion());
+        dto.setPagoId(transaccion.getPago() != null ? transaccion.getPago().getId() : null);
+        return dto;
     }
 }
