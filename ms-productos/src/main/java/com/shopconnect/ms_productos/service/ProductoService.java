@@ -1,12 +1,19 @@
 package com.shopconnect.ms_productos.service;
 
+import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Optional;
 
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.shopconnect.ms_productos.dto.request.CategoriaRequestDTO;
+import com.shopconnect.ms_productos.dto.request.ImagenProductoRequestDTO;
+import com.shopconnect.ms_productos.dto.request.MarcaRequestDTO;
+import com.shopconnect.ms_productos.dto.request.ProductoRequestDTO;
+import com.shopconnect.ms_productos.dto.response.CategoriaResponseDTO;
+import com.shopconnect.ms_productos.dto.response.ImagenProductoResponseDTO;
+import com.shopconnect.ms_productos.dto.response.MarcaResponseDTO;
+import com.shopconnect.ms_productos.dto.response.ProductoResponseDTO;
 import com.shopconnect.ms_productos.model.Categoria;
 import com.shopconnect.ms_productos.model.ImagenProducto;
 import com.shopconnect.ms_productos.model.Marca;
@@ -16,192 +23,224 @@ import com.shopconnect.ms_productos.repository.ImagenProductoRepository;
 import com.shopconnect.ms_productos.repository.MarcaRepository;
 import com.shopconnect.ms_productos.repository.ProductoRepository;
 
-/**
- * SERVICIO: ProductoService
- *
- * RESPONSABILIDAD: Lógica de negocio.
- * El Service llama a los métodos del Repository.
- * El Service NO escribe SQL ni usa EntityManager directamente.
- */
 @Service
 public class ProductoService {
 
-    @Autowired
-    private ProductoRepository productoRepository;
+    private final ProductoRepository productoRepository;
+    private final CategoriaRepository categoriaRepository;
+    private final MarcaRepository marcaRepository;
+    private final ImagenProductoRepository imagenProductoRepository;
 
-    @Autowired
-    private CategoriaRepository categoriaRepository;
-
-    @Autowired
-    private MarcaRepository marcaRepository;
-
-    @Autowired
-    private ImagenProductoRepository imagenProductoRepository;
-
-    // ═══ PRODUCTOS ════════════════════════════════════════════════════
-
-    public List<Producto> listarTodos() {
-        return productoRepository.findAll();
+    public ProductoService(ProductoRepository productoRepository,
+                           CategoriaRepository categoriaRepository,
+                           MarcaRepository marcaRepository,
+                           ImagenProductoRepository imagenProductoRepository) {
+        this.productoRepository = productoRepository;
+        this.categoriaRepository = categoriaRepository;
+        this.marcaRepository = marcaRepository;
+        this.imagenProductoRepository = imagenProductoRepository;
     }
 
-    public Optional<Producto> buscarPorId(Long id) {
-        return productoRepository.findById(id);
+    public List<ProductoResponseDTO> listarTodos() {
+        return productoRepository.findAll()
+                .stream()
+                .map(this::convertirADTO)
+                .toList();
     }
 
-    public List<Producto> buscarPorCategoria(Long categoriaId) {
-        return productoRepository.findByCategoriaId(categoriaId);
+    public ProductoResponseDTO buscarPorId(Long id) {
+        Producto producto = productoRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Producto no encontrado: " + id));
+        return convertirADTO(producto);
     }
 
-    public List<Producto> buscarPorMarca(Long marcaId) {
-        return productoRepository.findByMarcaId(marcaId);
+    public List<ProductoResponseDTO> buscarPorCategoria(Long categoriaId) {
+        return productoRepository.findByCategoriaId(categoriaId)
+                .stream()
+                .map(this::convertirADTO)
+                .toList();
     }
 
-    public List<Producto> buscarPorNombre(String nombre) {
-        return productoRepository.findByNombreContainingIgnoreCase(nombre);
+    public List<ProductoResponseDTO> buscarPorMarca(Long marcaId) {
+        return productoRepository.findByMarcaId(marcaId)
+                .stream()
+                .map(this::convertirADTO)
+                .toList();
+    }
+
+    public List<ProductoResponseDTO> buscarPorNombre(String nombre) {
+        return productoRepository.findByNombreContainingIgnoreCase(nombre)
+                .stream()
+                .map(this::convertirADTO)
+                .toList();
     }
 
     @Transactional
-    public Producto crear(Producto producto, Long categoriaId, Long marcaId) {
+    public ProductoResponseDTO crear(ProductoRequestDTO dto) {
 
-        // Validar SKU único
-        if (productoRepository.existsBySku(producto.getSku())) {
-            throw new IllegalArgumentException("SKU duplicado: " + producto.getSku());
+        if (productoRepository.existsBySku(dto.getSku())) {
+            throw new IllegalArgumentException("SKU duplicado: " + dto.getSku());
         }
 
-        // Validar que existe la categoría
-        Categoria categoria = categoriaRepository.findById(categoriaId)
-                .orElseThrow(() -> new RuntimeException("Categoría no encontrada: " + categoriaId));
-        producto.setCategoria(categoria);
+        Categoria categoria = categoriaRepository.findById(dto.getCategoriaId())
+                .orElseThrow(() -> new RuntimeException("Categoría no encontrada: " + dto.getCategoriaId()));
 
-        // Validar que existe la marca
-        Marca marca = marcaRepository.findById(marcaId)
-                .orElseThrow(() -> new RuntimeException("Marca no encontrada: " + marcaId));
+        Marca marca = marcaRepository.findById(dto.getMarcaId())
+                .orElseThrow(() -> new RuntimeException("Marca no encontrada: " + dto.getMarcaId()));
+
+        Producto producto = new Producto();
+        producto.setNombre(dto.getNombre());
+        producto.setPrecio(dto.getPrecio());
+        producto.setStock(dto.getStock());
+        producto.setSku(dto.getSku());
+        producto.setCategoria(categoria);
         producto.setMarca(marca);
 
-        return productoRepository.save(producto);
+        return convertirADTO(productoRepository.save(producto));
     }
 
     @Transactional
-    public Producto actualizar(Long id, Producto datos) {
+    public ProductoResponseDTO actualizar(Long id, ProductoRequestDTO dto) {
 
         Producto producto = productoRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Producto no encontrado: " + id));
 
-        if (datos.getNombre() != null) {
-            producto.setNombre(datos.getNombre());
+        if (dto.getNombre() != null) {
+            producto.setNombre(dto.getNombre());
         }
 
-        if (datos.getPrecio() != null) {
-            producto.setPrecio(datos.getPrecio());
+        if (dto.getPrecio() != null) {
+            producto.setPrecio(dto.getPrecio());
         }
 
-        if (datos.getStock() != null) {
-            producto.setStock(datos.getStock());
+        if (dto.getStock() != null) {
+            producto.setStock(dto.getStock());
         }
 
-        if (datos.getSku() != null) {
-            if (!datos.getSku().equals(producto.getSku()) &&
-                    productoRepository.existsBySku(datos.getSku())) {
-                throw new IllegalArgumentException("SKU duplicado: " + datos.getSku());
+        if (dto.getSku() != null) {
+            if (!dto.getSku().equals(producto.getSku()) && productoRepository.existsBySku(dto.getSku())) {
+                throw new IllegalArgumentException("SKU duplicado: " + dto.getSku());
             }
-
-            producto.setSku(datos.getSku());
+            producto.setSku(dto.getSku());
         }
 
-        return productoRepository.save(producto);
+        if (dto.getCategoriaId() != null) {
+            Categoria categoria = categoriaRepository.findById(dto.getCategoriaId())
+                    .orElseThrow(() -> new RuntimeException("Categoría no encontrada: " + dto.getCategoriaId()));
+            producto.setCategoria(categoria);
+        }
+
+        if (dto.getMarcaId() != null) {
+            Marca marca = marcaRepository.findById(dto.getMarcaId())
+                    .orElseThrow(() -> new RuntimeException("Marca no encontrada: " + dto.getMarcaId()));
+            producto.setMarca(marca);
+        }
+
+        return convertirADTO(productoRepository.save(producto));
     }
 
     @Transactional
     public void eliminar(Long id) {
+        Producto producto = productoRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Producto no encontrado: " + id));
 
-        if (!productoRepository.existsById(id)) {
-            throw new RuntimeException("Producto no encontrado: " + id);
-        }
-
-        productoRepository.deleteById(id);
+        productoRepository.delete(producto);
     }
 
-    // ═══ CATEGORÍAS ════════════════════════════════════════════════════
-
-    public List<Categoria> listarCategorias() {
-        return categoriaRepository.findAll();
+    public List<CategoriaResponseDTO> listarCategorias() {
+        return categoriaRepository.findAll()
+                .stream()
+                .map(this::convertirCategoriaADTO)
+                .toList();
     }
 
-    public Optional<Categoria> buscarCategoriaPorId(Long id) {
-        return categoriaRepository.findById(id);
+    public CategoriaResponseDTO buscarCategoriaPorId(Long id) {
+        Categoria categoria = categoriaRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Categoría no encontrada: " + id));
+        return convertirCategoriaADTO(categoria);
     }
 
     @Transactional
-    public Categoria crearCategoria(Categoria categoria) {
-        return categoriaRepository.save(categoria);
+    public CategoriaResponseDTO crearCategoria(CategoriaRequestDTO dto) {
+        Categoria categoria = new Categoria();
+        categoria.setNombre(dto.getNombre());
+        categoria.setDescripcion(dto.getDescripcion());
+        categoria.setActiva(dto.getActiva());
+
+        return convertirCategoriaADTO(categoriaRepository.save(categoria));
     }
 
     @Transactional
     public void eliminarCategoria(Long id) {
+        Categoria categoria = categoriaRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Categoría no encontrada: " + id));
 
-        if (!categoriaRepository.existsById(id)) {
-            throw new RuntimeException("Categoría no encontrada: " + id);
-        }
-
-        categoriaRepository.deleteById(id);
+        categoriaRepository.delete(categoria);
     }
 
-    // ═══ MARCAS ════════════════════════════════════════════════════════
-
-    public List<Marca> listarMarcas() {
-        return marcaRepository.findAll();
+    public List<MarcaResponseDTO> listarMarcas() {
+        return marcaRepository.findAll()
+                .stream()
+                .map(this::convertirMarcaADTO)
+                .toList();
     }
 
-    public Optional<Marca> buscarMarcaPorId(Long id) {
-        return marcaRepository.findById(id);
+    public MarcaResponseDTO buscarMarcaPorId(Long id) {
+        Marca marca = marcaRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Marca no encontrada: " + id));
+        return convertirMarcaADTO(marca);
     }
 
     @Transactional
-    public Marca crearMarca(Marca marca) {
-        return marcaRepository.save(marca);
+    public MarcaResponseDTO crearMarca(MarcaRequestDTO dto) {
+        Marca marca = new Marca();
+        marca.setNombre(dto.getNombre());
+        marca.setPaisOrigen(dto.getPaisOrigen());
+        marca.setLogoUrl(dto.getLogoUrl());
+
+        return convertirMarcaADTO(marcaRepository.save(marca));
     }
 
     @Transactional
     public void eliminarMarca(Long id) {
+        Marca marca = marcaRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Marca no encontrada: " + id));
 
-        if (!marcaRepository.existsById(id)) {
-            throw new RuntimeException("Marca no encontrada: " + id);
-        }
-
-        marcaRepository.deleteById(id);
+        marcaRepository.delete(marca);
     }
 
-    // ═══ IMÁGENES DE PRODUCTO ══════════════════════════════════════════
-
-    public List<ImagenProducto> listarImagenesPorProducto(Long productoId) {
-        return imagenProductoRepository.findByProductoId(productoId);
+    public List<ImagenProductoResponseDTO> listarImagenesPorProducto(Long productoId) {
+        return imagenProductoRepository.findByProductoId(productoId)
+                .stream()
+                .map(this::convertirImagenADTO)
+                .toList();
     }
 
     @Transactional
-    public ImagenProducto agregarImagen(Long productoId, ImagenProducto imagenProducto) {
+    public ImagenProductoResponseDTO agregarImagen(Long productoId, ImagenProductoRequestDTO dto) {
 
         Producto producto = productoRepository.findById(productoId)
                 .orElseThrow(() -> new RuntimeException("Producto no encontrado: " + productoId));
 
-        imagenProducto.setProducto(producto);
+        ImagenProducto imagen = new ImagenProducto();
+        imagen.setUrl(dto.getUrl());
+        imagen.setOrden(dto.getOrden());
+        imagen.setPrincipal(dto.getPrincipal());
+        imagen.setProducto(producto);
 
-        return imagenProductoRepository.save(imagenProducto);
+        return convertirImagenADTO(imagenProductoRepository.save(imagen));
     }
 
     @Transactional
     public void eliminarImagen(Long id) {
+        ImagenProducto imagen = imagenProductoRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Imagen no encontrada: " + id));
 
-        if (!imagenProductoRepository.existsById(id)) {
-            throw new RuntimeException("Imagen no encontrada: " + id);
-        }
-
-        imagenProductoRepository.deleteById(id);
+        imagenProductoRepository.delete(imagen);
     }
 
-    // ═══ OPERACIONES ESPECÍFICAS ═══════════════════════════════════════
-
     @Transactional
-    public Producto actualizarCategoria(Long productoId, Long categoriaId) {
+    public ProductoResponseDTO actualizarCategoria(Long productoId, Long categoriaId) {
 
         Producto producto = productoRepository.findById(productoId)
                 .orElseThrow(() -> new RuntimeException("Producto no encontrado: " + productoId));
@@ -211,11 +250,11 @@ public class ProductoService {
 
         producto.setCategoria(categoria);
 
-        return productoRepository.save(producto);
+        return convertirADTO(productoRepository.save(producto));
     }
 
     @Transactional
-    public Producto actualizarMarca(Long productoId, Long marcaId) {
+    public ProductoResponseDTO actualizarMarca(Long productoId, Long marcaId) {
 
         Producto producto = productoRepository.findById(productoId)
                 .orElseThrow(() -> new RuntimeException("Producto no encontrado: " + productoId));
@@ -225,6 +264,55 @@ public class ProductoService {
 
         producto.setMarca(marca);
 
-        return productoRepository.save(producto);
+        return convertirADTO(productoRepository.save(producto));
+    }
+
+    private Producto convertirAEntity(ProductoRequestDTO dto) {
+        Producto producto = new Producto();
+        producto.setNombre(dto.getNombre());
+        producto.setPrecio(dto.getPrecio());
+        producto.setStock(dto.getStock());
+        producto.setSku(dto.getSku());
+        return producto;
+    }
+
+    private ProductoResponseDTO convertirADTO(Producto producto) {
+        ProductoResponseDTO dto = new ProductoResponseDTO();
+        dto.setId(producto.getId());
+        dto.setNombre(producto.getNombre());
+        dto.setPrecio(producto.getPrecio());
+        dto.setStock(producto.getStock());
+        dto.setSku(producto.getSku());
+        dto.setCategoriaId(producto.getCategoria() != null ? producto.getCategoria().getId() : null);
+        dto.setMarcaId(producto.getMarca() != null ? producto.getMarca().getId() : null);
+        return dto;
+    }
+
+    private CategoriaResponseDTO convertirCategoriaADTO(Categoria categoria) {
+        CategoriaResponseDTO dto = new CategoriaResponseDTO();
+        dto.setId(categoria.getId());
+        dto.setNombre(categoria.getNombre());
+        dto.setDescripcion(categoria.getDescripcion());
+        dto.setActiva(categoria.getActiva());
+        return dto;
+    }
+
+    private MarcaResponseDTO convertirMarcaADTO(Marca marca) {
+        MarcaResponseDTO dto = new MarcaResponseDTO();
+        dto.setId(marca.getId());
+        dto.setNombre(marca.getNombre());
+        dto.setPaisOrigen(marca.getPaisOrigen());
+        dto.setLogoUrl(marca.getLogoUrl());
+        return dto;
+    }
+
+    private ImagenProductoResponseDTO convertirImagenADTO(ImagenProducto imagen) {
+        ImagenProductoResponseDTO dto = new ImagenProductoResponseDTO();
+        dto.setId(imagen.getId());
+        dto.setUrl(imagen.getUrl());
+        dto.setOrden(imagen.getOrden());
+        dto.setPrincipal(imagen.getPrincipal());
+        dto.setProductoId(imagen.getProducto() != null ? imagen.getProducto().getId() : null);
+        return dto;
     }
 }
