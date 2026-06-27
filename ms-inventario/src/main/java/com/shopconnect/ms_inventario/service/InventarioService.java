@@ -2,197 +2,187 @@ package com.shopconnect.ms_inventario.service;
 
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Optional;
 
-import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.client.RestTemplate;
 
+import com.shopconnect.ms_inventario.dto.request.InventarioRequestDTO;
+import com.shopconnect.ms_inventario.dto.request.MovimientoInventarioRequestDTO;
+import com.shopconnect.ms_inventario.dto.response.InventarioResponseDTO;
+import com.shopconnect.ms_inventario.dto.response.MovimientoInventarioResponseDTO;
 import com.shopconnect.ms_inventario.model.Inventario;
 import com.shopconnect.ms_inventario.model.MovimientoInventario;
 import com.shopconnect.ms_inventario.repository.InventarioRepository;
 import com.shopconnect.ms_inventario.repository.MovimientoInventarioRepository;
-import com.shopconnect.ms_inventario.dto.request.InventarioRequestDTO;
-import com.shopconnect.ms_inventario.dto.response.InventarioResponseDTO;
-import com.shopconnect.ms_inventario.dto.request.MovimientoInventarioRequestDTO;
-import com.shopconnect.ms_inventario.dto.response.MovimientoInventarioResponseDTO;
 
-/**
- * SERVICIO: InventarioService
- *
- * RESPONSABILIDAD: Lógica de negocio.
- * El Service llama a los métodos del Repository.
- * El Service NO escribe SQL ni usa EntityManager directamente.
- */
 @Service
 public class InventarioService {
 
-    @Autowired
-    private InventarioRepository inventarioRepository;
+    private final InventarioRepository inventarioRepository;
+    private final MovimientoInventarioRepository movimientoInventarioRepository;
+    private final RestTemplate restTemplate;
 
-    @Autowired
-    private MovimientoInventarioRepository movimientoInventarioRepository;
+    @Value("${servicios.productos.url}")
+    private String productosUrl;
 
-    // ═══ INVENTARIO ════════════════════════════════════════════════════
-
-    public List<Inventario> listarTodos() {
-        return inventarioRepository.findAll();
+    public InventarioService(InventarioRepository inventarioRepository,
+                             MovimientoInventarioRepository movimientoInventarioRepository,
+                             RestTemplate restTemplate) {
+        this.inventarioRepository = inventarioRepository;
+        this.movimientoInventarioRepository = movimientoInventarioRepository;
+        this.restTemplate = restTemplate;
     }
 
-    public Optional<Inventario> buscarPorId(Long id) {
-        return inventarioRepository.findById(id);
+    public List<InventarioResponseDTO> listar() {
+        return inventarioRepository.findAll()
+                .stream()
+                .map(this::convertirADTO)
+                .toList();
     }
 
-    public Optional<Inventario> buscarPorProductoId(Long productoId) {
-        return inventarioRepository.findByProductoId(productoId);
+    public InventarioResponseDTO buscarPorId(Long id) {
+        Inventario inventario = inventarioRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Inventario no encontrado"));
+        return convertirADTO(inventario);
+    }
+
+    public InventarioResponseDTO buscarPorProductoId(Long productoId) {
+        Inventario inventario = inventarioRepository.findByProductoId(productoId)
+                .orElseThrow(() -> new RuntimeException("Inventario no encontrado"));
+        return convertirADTO(inventario);
     }
 
     @Transactional
-    public InventarioResponseDTO crear(InventarioRequestDTO dto) { // Recibes el request DTO
+    public InventarioResponseDTO crear(InventarioRequestDTO dto) {
+        validarProducto(dto.getProductoId());
 
-        if (inventarioRepository.existsByProductoId(dto.getProductoId())) { // Validar duplicado
-            throw new IllegalArgumentException("Ya existe inventario para el productoId: " + dto.getProductoId());
+        if (inventarioRepository.existsByProductoId(dto.getProductoId())) {
+            throw new RuntimeException("Ya existe inventario para el productoId: " + dto.getProductoId());
         }
 
-        Inventario inventario = new Inventario(); // Crear objeto si no esta duplicado
-
-        // Revisar stock actual y si es null es igual a 0. De lo contrario lo que recibe del DTO
-        if (dto.getStockActual() == null) {
-            inventario.setStockActual(0);
-        } else {
-            inventario.setStockActual(dto.getStockActual());
-        }
-
-        // Revisar stock minimo y si es diferente a null es igual a 0. De lo contrario lo que decibe del DTO
-        if (dto.getStockMinimo() == null) {
-            inventario.setStockMinimo(0);
-        } else {
-            inventario.setStockMinimo(dto.getStockMinimo());
-        }
-
-        // Guardar 
-        Inventario guardado = inventarioRepository.save(inventario);
-
-        // Response DTO
-        InventarioResponseDTO response = new InventarioResponseDTO();
-        response.setId(guardado.getId());
-        response.setProductoId(guardado.getProductoId());
-        response.setStockActual(guardado.getStockActual());
-        response.setStockMinimo(guardado.getStockMinimo());
-
-        return response;
+        Inventario inventario = convertirAEntity(dto);
+        return convertirADTO(inventarioRepository.save(inventario));
     }
 
     @Transactional
     public InventarioResponseDTO actualizar(Long id, InventarioRequestDTO dto) {
+        validarProducto(dto.getProductoId());
 
-        // buscar por ID en la BD
-        Inventario inventario = inventarioRepository.findById(id) 
-                .orElseThrow(() -> new RuntimeException("Inventario no encontrado: " + id)); 
+        Inventario inventario = inventarioRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Inventario no encontrado"));
 
-        // Si productoId viene informado, validamos que no esté asignado a otro inventario
-        if (dto.getProductoId() != null) {
-            if (!dto.getProductoId().equals(inventario.getProductoId())
-                    && inventarioRepository.existsByProductoId(dto.getProductoId())) {
-                throw new IllegalArgumentException(
-                    "Ya existe inventario para el productoId: " + dto.getProductoId());
-            }
-
-            // Si existe lo actualizamos
-            inventario.setProductoId(dto.getProductoId());
+        if (!inventario.getProductoId().equals(dto.getProductoId())
+                && inventarioRepository.existsByProductoId(dto.getProductoId())) {
+            throw new RuntimeException("Ya existe inventario para el productoId: " + dto.getProductoId());
         }
 
-        // Si no es nulo actualizamos con el nuevo stock
-        if (dto.getStockActual() != null) {
-            inventario.setStockActual(dto.getStockActual());
-        }
+        inventario.setProductoId(dto.getProductoId());
+        inventario.setStockActual(dto.getStockActual());
+        inventario.setStockMinimo(dto.getStockMinimo());
 
-        // Si no es nulo actualizamos con el nuevo stock
-        if (dto.getStockMinimo() != null) {
-            inventario.setStockMinimo(dto.getStockMinimo());
-        }
-
-        // Creamos el objeto actualizado y le asignamos el metodo de JPA para guardar  
-        Inventario actualizado = inventarioRepository.save(inventario);
-
-        // Creamos la respuesta, instanciando response y preparandolo para recibir los setters
-        InventarioResponseDTO response = new InventarioResponseDTO();
-        response.setId(actualizado.getId());
-        response.setProductoId(actualizado.getProductoId());
-        response.setStockActual(actualizado.getStockActual());
-        response.setStockMinimo(actualizado.getStockMinimo());
-
-        return response; // devolvemos el objeto 
+        return convertirADTO(inventarioRepository.save(inventario));
     }
 
     @Transactional
     public void eliminar(Long id) {
+        Inventario inventario = inventarioRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Inventario no encontrado"));
 
-        if (!inventarioRepository.existsById(id)) {
-            throw new RuntimeException("Inventario no encontrado: " + id);
-        }
-
-        inventarioRepository.deleteById(id);
+        inventarioRepository.delete(inventario);
     }
 
-    // ═══ MOVIMIENTOS DE INVENTARIO ═════════════════════════════════════
-
-    public List<MovimientoInventario> listarMovimientosPorInventario(Long inventarioId) {
-        return movimientoInventarioRepository.findByInventarioId(inventarioId);
+    public List<MovimientoInventarioResponseDTO> listarMovimientosPorInventario(Long inventarioId) {
+        return movimientoInventarioRepository.findByInventarioId(inventarioId)
+                .stream()
+                .map(this::convertirMovimientoADTO)
+                .toList();
     }
 
     @Transactional
-    public MovimientoInventario registrarMovimiento(Long inventarioId, MovimientoInventario movimiento) {
-
+    public MovimientoInventarioResponseDTO registrarMovimiento(Long inventarioId,
+                                                               MovimientoInventarioRequestDTO dto) {
         Inventario inventario = inventarioRepository.findById(inventarioId)
-                .orElseThrow(() -> new RuntimeException("Inventario no encontrado: " + inventarioId));
+                .orElseThrow(() -> new RuntimeException("Inventario no encontrado"));
 
-        if (movimiento.getCantidad() == null || movimiento.getCantidad() <= 0) {
-            throw new IllegalArgumentException("La cantidad debe ser mayor a 0");
+        if (dto.getCantidad() == null || dto.getCantidad() <= 0) {
+            throw new RuntimeException("La cantidad debe ser mayor a 0");
         }
 
-        if (movimiento.getTipo() == null || movimiento.getTipo().isBlank()) {
-            throw new IllegalArgumentException("El tipo de movimiento es obligatorio");
+        if (dto.getTipo() == null || dto.getTipo().isBlank()) {
+            throw new RuntimeException("El tipo de movimiento es obligatorio");
         }
 
-        String tipo = movimiento.getTipo().toUpperCase();
+        String tipo = dto.getTipo().toUpperCase();
 
-        switch (tipo) {
-            case "ENTRADA" -> inventario.setStockActual(inventario.getStockActual() + movimiento.getCantidad());
-            case "SALIDA" -> {
-                if (inventario.getStockActual() < movimiento.getCantidad()) {
-                    throw new IllegalStateException("Stock insuficiente para realizar la salida");
-                }   inventario.setStockActual(inventario.getStockActual() - movimiento.getCantidad());
+        if (tipo.equals("ENTRADA")) {
+            inventario.setStockActual(inventario.getStockActual() + dto.getCantidad());
+        } else if (tipo.equals("SALIDA")) {
+            if (inventario.getStockActual() < dto.getCantidad()) {
+                throw new RuntimeException("Stock insuficiente para realizar la salida");
             }
-            default -> throw new IllegalArgumentException("Tipo de movimiento inválido. Use ENTRADA o SALIDA");
-        }
-
-        movimiento.setTipo(tipo);
-        movimiento.setInventario(inventario);
-
-        if (movimiento.getFechaMovimiento() == null) {
-            movimiento.setFechaMovimiento(LocalDateTime.now());
+            inventario.setStockActual(inventario.getStockActual() - dto.getCantidad());
+        } else {
+            throw new RuntimeException("Tipo de movimiento inválido");
         }
 
         inventarioRepository.save(inventario);
 
-        return movimientoInventarioRepository.save(movimiento);
+        MovimientoInventario movimiento = new MovimientoInventario();
+        movimiento.setTipo(tipo);
+        movimiento.setCantidad(dto.getCantidad());
+        movimiento.setFechaMovimiento(LocalDateTime.now());
+        movimiento.setInventario(inventario);
+
+        return convertirMovimientoADTO(movimientoInventarioRepository.save(movimiento));
     }
 
-    // ═══ OPERACIONES ESPECÍFICAS ═══════════════════════════════════════
-
     @Transactional
-    public Inventario ajustarStockMinimo(Long inventarioId, Integer stockMinimo) {
-
+    public InventarioResponseDTO ajustarStockMinimo(Long inventarioId, Integer stockMinimo) {
         Inventario inventario = inventarioRepository.findById(inventarioId)
-                .orElseThrow(() -> new RuntimeException("Inventario no encontrado: " + inventarioId));
+                .orElseThrow(() -> new RuntimeException("Inventario no encontrado"));
 
         if (stockMinimo == null || stockMinimo < 0) {
-            throw new IllegalArgumentException("El stock mínimo no puede ser negativo");
+            throw new RuntimeException("El stock mínimo no puede ser negativo");
         }
 
         inventario.setStockMinimo(stockMinimo);
+        return convertirADTO(inventarioRepository.save(inventario));
+    }
 
-        return inventarioRepository.save(inventario);
+    private void validarProducto(Long productoId) {
+        try {
+            restTemplate.getForObject(productosUrl + "/api/v1/productos/" + productoId, Object.class);
+        } catch (Exception e) {
+            throw new RuntimeException("Producto no encontrado: " + productoId);
+        }
+    }
+
+    private Inventario convertirAEntity(InventarioRequestDTO dto) {
+        Inventario inventario = new Inventario();
+        inventario.setProductoId(dto.getProductoId());
+        inventario.setStockActual(dto.getStockActual());
+        inventario.setStockMinimo(dto.getStockMinimo());
+        return inventario;
+    }
+
+    private InventarioResponseDTO convertirADTO(Inventario inventario) {
+        InventarioResponseDTO dto = new InventarioResponseDTO();
+        dto.setId(inventario.getId());
+        dto.setProductoId(inventario.getProductoId());
+        dto.setStockActual(inventario.getStockActual());
+        dto.setStockMinimo(inventario.getStockMinimo());
+        return dto;
+    }
+
+    private MovimientoInventarioResponseDTO convertirMovimientoADTO(MovimientoInventario movimiento) {
+        MovimientoInventarioResponseDTO dto = new MovimientoInventarioResponseDTO();
+        dto.setId(movimiento.getId());
+        dto.setTipo(movimiento.getTipo());
+        dto.setCantidad(movimiento.getCantidad());
+        dto.setFechaMovimiento(movimiento.getFechaMovimiento());
+        dto.setInventarioId(movimiento.getInventario().getId());
+        return dto;
     }
 }

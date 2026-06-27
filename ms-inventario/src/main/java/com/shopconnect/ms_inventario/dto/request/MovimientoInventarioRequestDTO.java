@@ -32,12 +32,5 @@ public class MovimientoInventarioRequestDTO {
         this.cantidad = cantidad;
     }
 
-    public Long getInventarioId() {
-        return inventarioId;
-    }
-
-    public void setInventarioId(Long inventarioId) {
-        this.inventarioId = inventarioId;
-    }
 }
 
