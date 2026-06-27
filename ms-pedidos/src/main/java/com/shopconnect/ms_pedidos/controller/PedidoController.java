@@ -1,9 +1,7 @@
 package com.shopconnect.ms_pedidos.controller;
 
 import java.util.List;
-import java.util.Map;
 
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -17,49 +15,32 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.shopconnect.ms_pedidos.model.DetallePedido;
-import com.shopconnect.ms_pedidos.model.EstadoPedido;
-import com.shopconnect.ms_pedidos.model.Pedido;
+import com.shopconnect.ms_pedidos.dto.request.DetallePedidoRequestDTO;
+import com.shopconnect.ms_pedidos.dto.request.EstadoPedidoRequestDTO;
+import com.shopconnect.ms_pedidos.dto.request.PedidoRequestDTO;
+import com.shopconnect.ms_pedidos.dto.response.DetallePedidoResponseDTO;
+import com.shopconnect.ms_pedidos.dto.response.EstadoPedidoResponseDTO;
+import com.shopconnect.ms_pedidos.dto.response.PedidoResponseDTO;
 import com.shopconnect.ms_pedidos.service.PedidoService;
 
 import jakarta.validation.Valid;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 
-/**
- * ═══════════════════════════════════════════════════════════════════════════
- * CONTROLADOR REST: PedidoController
- * ═══════════════════════════════════════════════════════════════════════════
- *
- * Expone la API REST del microservicio ms-pedidos.
- * Todos los endpoints comienzan con: /api/v1/pedidos
- *
- * Códigos HTTP más usados:
- *   200 OK          → operación exitosa con respuesta
- *   201 Created     → recurso creado exitosamente
- *   204 No Content  → operación exitosa sin respuesta
- *   400 Bad Request → error en los datos enviados
- *   404 Not Found   → recurso no encontrado
- *   409 Conflict    → conflicto, por ejemplo estado duplicado
- */
 @RestController
 @RequestMapping("/api/v1/pedidos")
+@Tag(name = "Pedidos", description = "Operaciones para pedidos, estados y detalles")
 public class PedidoController {
 
-    @Autowired
-    private PedidoService pedidoService;
-    // Spring inyecta la instancia de PedidoService automáticamente.
-    // El Controller SOLO llama al Service; no accede directamente a Repository.
+    private final PedidoService pedidoService;
 
-    // ════════════════════════════════════════════════════════════════════════
-    // ENDPOINTS DE PEDIDO
-    // ════════════════════════════════════════════════════════════════════════
+    public PedidoController(PedidoService pedidoService) {
+        this.pedidoService = pedidoService;
+    }
 
-    /**
-     * GET /api/v1/pedidos
-     * GET /api/v1/pedidos?usuarioId=1
-     * GET /api/v1/pedidos?estadoId=1
-     */
+    @Operation(summary = "Listar pedidos", description = "Lista todos los pedidos o filtra por usuarioId o estadoId.")
     @GetMapping
-    public ResponseEntity<List<Pedido>> listarTodos(
+    public ResponseEntity<List<PedidoResponseDTO>> listarTodos(
             @RequestParam(required = false) Long usuarioId,
             @RequestParam(required = false) Long estadoId) {
 
@@ -74,65 +55,44 @@ public class PedidoController {
         return ResponseEntity.ok(pedidoService.listarTodos());
     }
 
-    /**
-     * GET /api/v1/pedidos/1
-     * Busca un pedido por su ID.
-     */
+    @Operation(summary = "Buscar pedido por ID")
     @GetMapping("/{id}")
-    public ResponseEntity<?> buscarPorId(@PathVariable Long id) {
+    public ResponseEntity<PedidoResponseDTO> buscarPorId(@PathVariable Long id) {
         return pedidoService.buscarPorId(id)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
     }
 
-    /**
-     * POST /api/v1/pedidos?estadoId=1
-     * Crea un nuevo pedido.
-     *
-     * Body esperado:
-     * {
-     *   "usuarioId": 1,
-     *   "detalles": [
-     *     {
-     *       "productoId": 1,
-     *       "cantidad": 2,
-     *       "precioUnit": 499990
-     *     }
-     *   ]
-     * }
-     */
+    @Operation(summary = "Crear pedido")
     @PostMapping
-    public ResponseEntity<?> crear(
-            @Valid @RequestBody Pedido pedido,
-            @RequestParam Long estadoId) {
+    public ResponseEntity<?> crear(@Valid @RequestBody PedidoRequestDTO dto) {
         try {
-            Pedido creado = pedidoService.crear(pedido, estadoId);
+            PedidoResponseDTO creado = pedidoService.crear(dto);
             return ResponseEntity.status(HttpStatus.CREATED).body(creado);
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.status(HttpStatus.CONFLICT)
+                    .body(java.util.Map.of("error", e.getMessage()));
         } catch (RuntimeException e) {
             return ResponseEntity.badRequest()
-                    .body(Map.of("error", e.getMessage()));
+                    .body(java.util.Map.of("error", e.getMessage()));
         }
     }
 
-    /**
-     * PUT /api/v1/pedidos/1
-     * Actualiza datos principales del pedido.
-     */
+    @Operation(summary = "Actualizar pedido")
     @PutMapping("/{id}")
-    public ResponseEntity<?> actualizar(
-            @PathVariable Long id,
-            @RequestBody Pedido datos) {
+    public ResponseEntity<?> actualizar(@PathVariable Long id,
+                                       @Valid @RequestBody PedidoRequestDTO dto) {
         try {
-            return ResponseEntity.ok(pedidoService.actualizar(id, datos));
+            return ResponseEntity.ok(pedidoService.actualizar(id, dto));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.status(HttpStatus.CONFLICT)
+                    .body(java.util.Map.of("error", e.getMessage()));
         } catch (RuntimeException e) {
             return ResponseEntity.notFound().build();
         }
     }
 
-    /**
-     * DELETE /api/v1/pedidos/1
-     * Elimina un pedido por ID.
-     */
+    @Operation(summary = "Eliminar pedido")
     @DeleteMapping("/{id}")
     public ResponseEntity<?> eliminar(@PathVariable Long id) {
         try {
@@ -143,14 +103,10 @@ public class PedidoController {
         }
     }
 
-    /**
-     * PATCH /api/v1/pedidos/1/estado?estadoId=2
-     * Cambia solo el estado del pedido.
-     */
+    @Operation(summary = "Cambiar estado del pedido")
     @PatchMapping("/{id}/estado")
-    public ResponseEntity<?> cambiarEstado(
-            @PathVariable Long id,
-            @RequestParam Long estadoId) {
+    public ResponseEntity<?> cambiarEstado(@PathVariable Long id,
+                                           @RequestParam Long estadoId) {
         try {
             return ResponseEntity.ok(pedidoService.cambiarEstado(id, estadoId));
         } catch (RuntimeException e) {
@@ -158,49 +114,33 @@ public class PedidoController {
         }
     }
 
-    // ════════════════════════════════════════════════════════════════════════
-    // ENDPOINTS DE ESTADO DE PEDIDO
-    // ════════════════════════════════════════════════════════════════════════
-
-    /**
-     * GET /api/v1/pedidos/estados
-     * Lista todos los estados de pedido.
-     */
+    @Operation(summary = "Listar estados de pedido")
     @GetMapping("/estados")
-    public ResponseEntity<List<EstadoPedido>> listarEstados() {
+    public ResponseEntity<List<EstadoPedidoResponseDTO>> listarEstados() {
         return ResponseEntity.ok(pedidoService.listarEstados());
     }
 
-    /**
-     * GET /api/v1/pedidos/estados/1
-     * Busca un estado por ID.
-     */
+    @Operation(summary = "Buscar estado por ID")
     @GetMapping("/estados/{id}")
-    public ResponseEntity<?> buscarEstadoPorId(@PathVariable Long id) {
+    public ResponseEntity<EstadoPedidoResponseDTO> buscarEstadoPorId(@PathVariable Long id) {
         return pedidoService.buscarEstadoPorId(id)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
     }
 
-    /**
-     * POST /api/v1/pedidos/estados
-     * Crea un nuevo estado de pedido.
-     */
+    @Operation(summary = "Crear estado de pedido")
     @PostMapping("/estados")
-    public ResponseEntity<?> crearEstado(@Valid @RequestBody EstadoPedido estado) {
+    public ResponseEntity<?> crearEstado(@Valid @RequestBody EstadoPedidoRequestDTO dto) {
         try {
             return ResponseEntity.status(HttpStatus.CREATED)
-                    .body(pedidoService.crearEstado(estado));
+                    .body(pedidoService.crearEstado(dto));
         } catch (IllegalArgumentException e) {
             return ResponseEntity.status(HttpStatus.CONFLICT)
-                    .body(Map.of("error", e.getMessage()));
+                    .body(java.util.Map.of("error", e.getMessage()));
         }
     }
 
-    /**
-     * DELETE /api/v1/pedidos/estados/1
-     * Elimina un estado de pedido.
-     */
+    @Operation(summary = "Eliminar estado de pedido")
     @DeleteMapping("/estados/{id}")
     public ResponseEntity<?> eliminarEstado(@PathVariable Long id) {
         try {
@@ -208,57 +148,40 @@ public class PedidoController {
             return ResponseEntity.noContent().build();
         } catch (IllegalStateException e) {
             return ResponseEntity.status(HttpStatus.CONFLICT)
-                    .body(Map.of("error", e.getMessage()));
+                    .body(java.util.Map.of("error", e.getMessage()));
         } catch (RuntimeException e) {
             return ResponseEntity.notFound().build();
         }
     }
 
-    // ════════════════════════════════════════════════════════════════════════
-    // ENDPOINTS DE DETALLE DE PEDIDO
-    // ════════════════════════════════════════════════════════════════════════
-
-    /**
-     * GET /api/v1/pedidos/1/detalles
-     * Lista los detalles asociados a un pedido.
-     */
+    @Operation(summary = "Listar detalles por pedido")
     @GetMapping("/{pedidoId}/detalles")
-    public ResponseEntity<List<DetallePedido>> listarDetallesPorPedido(
+    public ResponseEntity<List<DetallePedidoResponseDTO>> listarDetallesPorPedido(
             @PathVariable Long pedidoId) {
         return ResponseEntity.ok(pedidoService.listarDetallesPorPedido(pedidoId));
     }
 
-    /**
-     * GET /api/v1/pedidos/detalles/producto/1
-     * Lista detalles donde aparece un producto específico.
-     */
+    @Operation(summary = "Listar detalles por producto")
     @GetMapping("/detalles/producto/{productoId}")
-    public ResponseEntity<List<DetallePedido>> listarDetallesPorProducto(
+    public ResponseEntity<List<DetallePedidoResponseDTO>> listarDetallesPorProducto(
             @PathVariable Long productoId) {
         return ResponseEntity.ok(pedidoService.listarDetallesPorProducto(productoId));
     }
 
-    /**
-     * POST /api/v1/pedidos/1/detalles
-     * Agrega un detalle a un pedido existente y recalcula el total.
-     */
+    @Operation(summary = "Agregar detalle a un pedido")
     @PostMapping("/{pedidoId}/detalles")
-    public ResponseEntity<?> agregarDetalle(
-            @PathVariable Long pedidoId,
-            @Valid @RequestBody DetallePedido detalle) {
+    public ResponseEntity<?> agregarDetalle(@PathVariable Long pedidoId,
+                                            @Valid @RequestBody DetallePedidoRequestDTO dto) {
         try {
             return ResponseEntity.status(HttpStatus.CREATED)
-                    .body(pedidoService.agregarDetalle(pedidoId, detalle));
+                    .body(pedidoService.agregarDetalle(pedidoId, dto));
         } catch (RuntimeException e) {
             return ResponseEntity.badRequest()
-                    .body(Map.of("error", e.getMessage()));
+                    .body(java.util.Map.of("error", e.getMessage()));
         }
     }
 
-    /**
-     * DELETE /api/v1/pedidos/detalles/1
-     * Elimina un detalle y recalcula el total del pedido.
-     */
+    @Operation(summary = "Eliminar detalle de pedido")
     @DeleteMapping("/detalles/{id}")
     public ResponseEntity<?> eliminarDetalle(@PathVariable Long id) {
         try {
