@@ -1,12 +1,16 @@
 package com.shopconnect.ms_usuarios.service;
 
 import java.util.List;
-import java.util.Optional;
 
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.shopconnect.ms_usuarios.dto.DireccionDTO;
+import com.shopconnect.ms_usuarios.dto.RolUsuarioDTO;
+import com.shopconnect.ms_usuarios.dto.UsuarioDTO;
+import com.shopconnect.ms_usuarios.dto.request.DireccionRequestDTO;
+import com.shopconnect.ms_usuarios.dto.request.RolUsuarioRequestDTO;
+import com.shopconnect.ms_usuarios.dto.request.UsuarioRequestDTO;
 import com.shopconnect.ms_usuarios.model.Direccion;
 import com.shopconnect.ms_usuarios.model.RolUsuario;
 import com.shopconnect.ms_usuarios.model.Usuario;
@@ -14,191 +18,198 @@ import com.shopconnect.ms_usuarios.repository.DireccionRepository;
 import com.shopconnect.ms_usuarios.repository.RolUsuarioRepository;
 import com.shopconnect.ms_usuarios.repository.UsuarioRepository;
 
-/**
- * SERVICIO: UsuarioService
- *
- * RESPONSABILIDAD: Lógica de negocio.
- * El Service llama a los métodos del Repository.
- * El Service NO escribe SQL ni usa EntityManager directamente.
- */
 @Service
 public class UsuarioService {
 
-    @Autowired
-    private UsuarioRepository usuarioRepository;
+    private final UsuarioRepository usuarioRepository;
+    private final RolUsuarioRepository rolUsuarioRepository;
+    private final DireccionRepository direccionRepository;
 
-    @Autowired
-    private RolUsuarioRepository rolUsuarioRepository;
-
-    @Autowired
-    private DireccionRepository direccionRepository;
-
-    // ═══ USUARIOS ════════════════════════════════════════════════════
-
-    public List<Usuario> listarTodos() {
-        return usuarioRepository.findAll();
+    public UsuarioService(UsuarioRepository usuarioRepository,
+                          RolUsuarioRepository rolUsuarioRepository,
+                          DireccionRepository direccionRepository) {
+        this.usuarioRepository = usuarioRepository;
+        this.rolUsuarioRepository = rolUsuarioRepository;
+        this.direccionRepository = direccionRepository;
     }
 
-    public Optional<Usuario> buscarPorId(Long id) {
-        return usuarioRepository.findById(id);
+    public List<UsuarioDTO> listarTodos() {
+        return usuarioRepository.findAll().stream().map(this::convertirADTO).toList();
     }
 
-    public Optional<Usuario> buscarPorEmail(String email) {
-        return usuarioRepository.findByEmail(email);
+    public UsuarioDTO buscarPorId(Long id) {
+        Usuario usuario = usuarioRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
+        return convertirADTO(usuario);
     }
 
-    public List<Usuario> listarPorRol(Long rolId) {
-        return usuarioRepository.findByRolId(rolId);
+    public UsuarioDTO buscarPorEmail(String email) {
+        Usuario usuario = usuarioRepository.findByEmail(email)
+                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
+        return convertirADTO(usuario);
     }
 
-    public List<Usuario> listarPorActivo(Boolean activo) {
-        return usuarioRepository.findByActivo(activo);
+    public List<UsuarioDTO> listarPorRol(Long rolId) {
+        return usuarioRepository.findByRolId(rolId).stream().map(this::convertirADTO).toList();
+    }
+
+    public List<UsuarioDTO> listarPorActivo(Boolean activo) {
+        return usuarioRepository.findByActivo(activo).stream().map(this::convertirADTO).toList();
     }
 
     @Transactional
-    public Usuario crear(Usuario usuario, Long rolId) {
-
-        // Validar email único
-        if (usuarioRepository.existsByEmail(usuario.getEmail())) {
-            throw new IllegalArgumentException("Email duplicado: " + usuario.getEmail());
+    public UsuarioDTO crear(UsuarioRequestDTO dto) {
+        if (usuarioRepository.existsByEmail(dto.getEmail())) {
+            throw new IllegalArgumentException("Email duplicado: " + dto.getEmail());
         }
 
-        // Validar que existe el rol
-        RolUsuario rol = rolUsuarioRepository.findById(rolId)
-                .orElseThrow(() -> new RuntimeException("Rol no encontrado: " + rolId));
+        RolUsuario rol = rolUsuarioRepository.findById(dto.getRolId())
+                .orElseThrow(() -> new RuntimeException("Rol no encontrado: " + dto.getRolId()));
 
+        Usuario usuario = new Usuario();
+        usuario.setNombre(dto.getNombre());
+        usuario.setEmail(dto.getEmail());
+        usuario.setPassword(dto.getPassword());
+        usuario.setActivo(dto.getActivo());
         usuario.setRol(rol);
 
-        return usuarioRepository.save(usuario);
+        return convertirADTO(usuarioRepository.save(usuario));
     }
 
     @Transactional
-    public Usuario actualizar(Long id, Usuario datos) {
-
+    public UsuarioDTO actualizar(Long id, UsuarioRequestDTO dto) {
         Usuario usuario = usuarioRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Usuario no encontrado: " + id));
+                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
 
-        if (datos.getNombre() != null) {
-            usuario.setNombre(datos.getNombre());
+        if (!dto.getEmail().equals(usuario.getEmail()) && usuarioRepository.existsByEmail(dto.getEmail())) {
+            throw new IllegalArgumentException("Email duplicado: " + dto.getEmail());
         }
 
-        if (datos.getEmail() != null) {
-            if (!datos.getEmail().equals(usuario.getEmail())
-                    && usuarioRepository.existsByEmail(datos.getEmail())) {
-                throw new IllegalArgumentException("Email duplicado: " + datos.getEmail());
-            }
+        RolUsuario rol = rolUsuarioRepository.findById(dto.getRolId())
+                .orElseThrow(() -> new RuntimeException("Rol no encontrado: " + dto.getRolId()));
 
-            usuario.setEmail(datos.getEmail());
-        }
+        usuario.setNombre(dto.getNombre());
+        usuario.setEmail(dto.getEmail());
+        usuario.setPassword(dto.getPassword());
+        usuario.setActivo(dto.getActivo());
+        usuario.setRol(rol);
 
-        if (datos.getPassword() != null) {
-            usuario.setPassword(datos.getPassword());
-        }
-
-        if (datos.getActivo() != null) {
-            usuario.setActivo(datos.getActivo());
-        }
-
-        return usuarioRepository.save(usuario);
+        return convertirADTO(usuarioRepository.save(usuario));
     }
 
     @Transactional
     public void eliminar(Long id) {
-
-        if (!usuarioRepository.existsById(id)) {
-            throw new RuntimeException("Usuario no encontrado: " + id);
-        }
-
-        usuarioRepository.deleteById(id);
+        Usuario usuario = usuarioRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
+        usuarioRepository.delete(usuario);
     }
 
-    // ═══ ROLES DE USUARIO ═════════════════════════════════════════════
-
-    public List<RolUsuario> listarRoles() {
-        return rolUsuarioRepository.findAll();
+    public List<RolUsuarioDTO> listarRoles() {
+        return rolUsuarioRepository.findAll().stream().map(this::convertirRolADTO).toList();
     }
 
-    public Optional<RolUsuario> buscarRolPorId(Long id) {
-        return rolUsuarioRepository.findById(id);
+    public RolUsuarioDTO buscarRolPorId(Long id) {
+        RolUsuario rol = rolUsuarioRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Rol no encontrado"));
+        return convertirRolADTO(rol);
     }
 
     @Transactional
-    public RolUsuario crearRol(RolUsuario rol) {
-
-        if (rolUsuarioRepository.existsByNombre(rol.getNombre())) {
-            throw new IllegalArgumentException("Nombre de rol duplicado: " + rol.getNombre());
+    public RolUsuarioDTO crearRol(RolUsuarioRequestDTO dto) {
+        if (rolUsuarioRepository.existsByNombre(dto.getNombre())) {
+            throw new IllegalArgumentException("Nombre de rol duplicado: " + dto.getNombre());
         }
 
-        return rolUsuarioRepository.save(rol);
+        RolUsuario rol = new RolUsuario();
+        rol.setNombre(dto.getNombre());
+        rol.setDescripcion(dto.getDescripcion());
+
+        return convertirRolADTO(rolUsuarioRepository.save(rol));
     }
 
     @Transactional
     public void eliminarRol(Long id) {
-
-        if (!rolUsuarioRepository.existsById(id)) {
-            throw new RuntimeException("Rol no encontrado: " + id);
-        }
+        RolUsuario rol = rolUsuarioRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Rol no encontrado"));
 
         List<Usuario> usuariosConRol = usuarioRepository.findByRolId(id);
-
         if (!usuariosConRol.isEmpty()) {
             throw new IllegalStateException("El rol tiene usuarios asociados");
         }
 
-        rolUsuarioRepository.deleteById(id);
+        rolUsuarioRepository.delete(rol);
     }
 
-    // ═══ DIRECCIONES ══════════════════════════════════════════════════
-
-    public List<Direccion> listarDireccionesPorUsuario(Long usuarioId) {
-        return direccionRepository.findByUsuarioId(usuarioId);
+    public List<DireccionDTO> listarDireccionesPorUsuario(Long usuarioId) {
+        return direccionRepository.findByUsuarioId(usuarioId).stream().map(this::convertirDireccionADTO).toList();
     }
 
     @Transactional
-    public Direccion agregarDireccion(Long usuarioId, Direccion direccion) {
-
+    public DireccionDTO agregarDireccion(Long usuarioId, DireccionRequestDTO dto) {
         Usuario usuario = usuarioRepository.findById(usuarioId)
-                .orElseThrow(() -> new RuntimeException("Usuario no encontrado: " + usuarioId));
+                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
 
+        Direccion direccion = new Direccion();
+        direccion.setCalle(dto.getCalle());
+        direccion.setCiudad(dto.getCiudad());
+        direccion.setRegion(dto.getRegion());
         direccion.setUsuario(usuario);
 
-        return direccionRepository.save(direccion);
+        return convertirDireccionADTO(direccionRepository.save(direccion));
     }
 
     @Transactional
     public void eliminarDireccion(Long id) {
-
-        if (!direccionRepository.existsById(id)) {
-            throw new RuntimeException("Dirección no encontrada: " + id);
-        }
-
-        direccionRepository.deleteById(id);
+        Direccion direccion = direccionRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Dirección no encontrada"));
+        direccionRepository.delete(direccion);
     }
 
-    // ═══ OPERACIONES ESPECÍFICAS ═══════════════════════════════════════
-
     @Transactional
-    public Usuario cambiarActivo(Long id, Boolean activo) {
-
+    public UsuarioDTO cambiarActivo(Long id, Boolean activo) {
         Usuario usuario = usuarioRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Usuario no encontrado: " + id));
-
+                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
         usuario.setActivo(activo);
-
-        return usuarioRepository.save(usuario);
+        return convertirADTO(usuarioRepository.save(usuario));
     }
 
     @Transactional
-    public Usuario actualizarRol(Long usuarioId, Long rolId) {
-
+    public UsuarioDTO actualizarRol(Long usuarioId, Long rolId) {
         Usuario usuario = usuarioRepository.findById(usuarioId)
-                .orElseThrow(() -> new RuntimeException("Usuario no encontrado: " + usuarioId));
+                .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
 
         RolUsuario rol = rolUsuarioRepository.findById(rolId)
-                .orElseThrow(() -> new RuntimeException("Rol no encontrado: " + rolId));
+                .orElseThrow(() -> new RuntimeException("Rol no encontrado"));
 
         usuario.setRol(rol);
+        return convertirADTO(usuarioRepository.save(usuario));
+    }
 
-        return usuarioRepository.save(usuario);
+    private UsuarioDTO convertirADTO(Usuario usuario) {
+        UsuarioDTO dto = new UsuarioDTO();
+        dto.setId(usuario.getId());
+        dto.setNombre(usuario.getNombre());
+        dto.setEmail(usuario.getEmail());
+        dto.setActivo(usuario.getActivo());
+        dto.setRolId(usuario.getRol() != null ? usuario.getRol().getId() : null);
+        return dto;
+    }
+
+    private RolUsuarioDTO convertirRolADTO(RolUsuario rol) {
+        RolUsuarioDTO dto = new RolUsuarioDTO();
+        dto.setId(rol.getId());
+        dto.setNombre(rol.getNombre());
+        dto.setDescripcion(rol.getDescripcion());
+        return dto;
+    }
+
+    private DireccionDTO convertirDireccionADTO(Direccion direccion) {
+        DireccionDTO dto = new DireccionDTO();
+        dto.setId(direccion.getId());
+        dto.setCalle(direccion.getCalle());
+        dto.setCiudad(direccion.getCiudad());
+        dto.setRegion(direccion.getRegion());
+        dto.setUsuarioId(direccion.getUsuario() != null ? direccion.getUsuario().getId() : null);
+        return dto;
     }
 }
