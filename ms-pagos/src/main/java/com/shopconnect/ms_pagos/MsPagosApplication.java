@@ -17,7 +17,7 @@ import io.swagger.v3.oas.annotations.servers.Server;
                 contact = @Contact(name = "Equipo ShopConnect", email = "soporte@duoc.cl")
         ),
         servers = @Server(
-                url = "http://localhost:8080",
+                url = "http://localhost:8085",
                 description = "Ambiente local de ms-pagos"
         )
 )
