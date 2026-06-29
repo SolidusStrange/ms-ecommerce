@@ -8,6 +8,7 @@ import io.swagger.v3.oas.annotations.info.Contact;
 import io.swagger.v3.oas.annotations.info.Info;
 import io.swagger.v3.oas.annotations.servers.Server;
 
+// Definimos lo que veremos en Swagger y a qué URL hará referencia el ambiente.
 @SpringBootApplication
 @OpenAPIDefinition(
         info = @Info(

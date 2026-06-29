@@ -8,8 +8,6 @@ import com.shopconnect.ms_inventario.model.Inventario;
 
 public interface InventarioRepository extends JpaRepository<Inventario, Long> {
 
-
-
     // Encontrar el producto. Usamos Optional para validar si hay un dato no nulo dentro del objeto. 
     Optional<Inventario> findByProductoId(Long productoId);
 
