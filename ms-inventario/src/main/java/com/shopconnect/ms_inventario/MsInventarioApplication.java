@@ -18,7 +18,7 @@ import io.swagger.v3.oas.annotations.servers.Server;
                 contact = @Contact(name = "Equipo DSY1103", email = "soporte@duoc.cl")
         ),
         servers = @Server(
-                url = "http://localhost:8081",
+                url = "http://localhost:8084",
                 description = "Ambiente local de ms-inventario"
         )
 )
