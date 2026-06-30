@@ -25,7 +25,7 @@ public class InventarioService {
     private final MovimientoInventarioRepository movimientoInventarioRepository;
     private final RestTemplate restTemplate;
 
-    @Value("${servicios.productos.url}")
+    @Value("${app.ms-productos.url}")
     private String productosUrl;
 
     public InventarioService(InventarioRepository inventarioRepository,
@@ -199,12 +199,14 @@ public class InventarioService {
     */    
     private void validarProducto(Long productoId) {
         try {
-            restTemplate.getForObject(productosUrl + "/api/v1/productos/" + productoId, Object.class);
+            restTemplate.getForObject(
+                productosUrl + "/api/v1/productos/" + productoId,
+                Object.class
+            );
         } catch (Exception e) {
             throw new RuntimeException("Producto no encontrado: " + productoId);
         }
     }
-
 
     // Convertimos a entidad el DTO para trabajar con el repository y registrar en la base de datos. 
     private Inventario convertirAEntity(InventarioRequestDTO dto) {
